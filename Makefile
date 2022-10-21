@@ -199,6 +199,9 @@ UPROGS=\
 	$U/_prime\
 	$U/_find\
 	$U/_xargs\
+	$U/_trace\
+	$U/_sysinfotest\
+
 
 
 
