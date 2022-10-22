@@ -132,6 +132,12 @@ static char* syscall_name[] = {
 [SYS_trace]  = "trace",
 [SYS_sysinfo] = "sysinfo",
 };
+#ifdef LAB_NET
+extern uint64 sys_connect(void);
+#endif
+#ifdef LAB_PGTBL
+extern uint64 sys_pgaccess(void);
+#endif
 
 static uint64 (*syscalls[])(void) = {
 [SYS_fork]    sys_fork,
@@ -157,7 +163,15 @@ static uint64 (*syscalls[])(void) = {
 [SYS_close]   sys_close,
 [SYS_trace]   sys_trace,
 [SYS_sysinfo] sys_sysinfo,
+#ifdef LAB_NET
+[SYS_connect] sys_connect,
+#endif
+#ifdef LAB_PGTBL
+[SYS_pgaccess] sys_pgaccess,
+#endif
 };
+
+
 
 void
 syscall(void)

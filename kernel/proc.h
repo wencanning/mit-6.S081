@@ -94,6 +94,7 @@ struct proc {
   int pid;                     // Process ID
 
   int mask;                    // a set of sysnumber to be traced
+  struct usyscall* uscall;      //pa for USYSCALL
 
   // wait_lock must be held when using this:
   struct proc *parent;         // Parent process

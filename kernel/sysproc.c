@@ -1,8 +1,8 @@
 #include "types.h"
 #include "riscv.h"
+#include "param.h"
 #include "defs.h"
 #include "date.h"
-#include "param.h"
 #include "memlayout.h"
 #include "spinlock.h"
 #include "proc.h"
@@ -47,6 +47,7 @@ sys_sbrk(void)
 
   if(argint(0, &n) < 0)
     return -1;
+  
   addr = myproc()->sz;
   if(growproc(n) < 0)
     return -1;
@@ -58,6 +59,7 @@ sys_sleep(void)
 {
   int n;
   uint ticks0;
+
 
   if(argint(0, &n) < 0)
     return -1;
@@ -73,6 +75,49 @@ sys_sleep(void)
   release(&tickslock);
   return 0;
 }
+
+
+#ifdef LAB_PGTBL
+int
+sys_pgaccess(void)
+{
+  pte_t *pte;
+
+  uint64 buf_va, mask_va;
+  int len;
+  if(argaddr(0, &buf_va) < 0) {
+    return -1;
+  }
+  if(argint(1, &len) < 0) {
+    return -1;
+  }
+  if(argaddr(2, &mask_va) < 0) {
+    return -1;
+  }
+
+  int mask = 0;
+
+  if(len > 32) 
+    return -1;
+
+  buf_va = PGROUNDDOWN(buf_va);
+
+  for(int i = 0; i < len; i++) {
+    uint64 a = buf_va + i * PGSIZE;
+    if((pte = walk(myproc()->pagetable, a, 0)) == 0)
+      return -1;    
+    if(*pte & PTE_A) {
+      mask |= (1 << i); 
+      *pte ^= PTE_A;
+    }
+  }
+
+  if(copyout(myproc()->pagetable, (uint64)mask_va, (char*)(&mask), 4) < 0) {
+    return -1;
+  }
+  return 0;
+}
+#endif
 
 uint64
 sys_kill(void)
