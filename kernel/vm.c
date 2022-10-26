@@ -54,6 +54,7 @@ void
 kvminit(void)
 {
   kernel_pagetable = kvmmake();
+  printf("kvmmake success\n");
 }
 
 // Switch h/w page table register to the kernel's page table,
@@ -312,9 +313,17 @@ uvmcopy(pagetable_t old, pagetable_t new, uint64 sz)
       panic("uvmcopy: page not present");
     pa = PTE2PA(*pte);
     flags = PTE_FLAGS(*pte);
-    if((mem = kalloc()) == 0)
-      goto err;
-    memmove(mem, (char*)pa, PGSIZE);
+    //只有有W位时，才需要标记COW位
+    if(flags & PTE_W) {
+      flags = flags & (~PTE_W); //清除子进程的W位
+      flags |= PTE_COW;         //给子进程添加COW位
+      *pte  = *pte & (~PTE_W);  //清除父进程的W位
+      *pte  |= PTE_COW;         //给父进程添加COW位 
+      mem = (char*)pa;
+    }else {
+      mem = (char*)pa;
+    }
+    kchangeref(pa, 1);
     if(mappages(new, i, PGSIZE, (uint64)mem, flags) != 0){
       kfree(mem);
       goto err;
@@ -347,9 +356,15 @@ int
 copyout(pagetable_t pagetable, uint64 dstva, char *src, uint64 len)
 {
   uint64 n, va0, pa0;
-
+  pte_t* pte;
+  if(dstva > MAXVA) 
+    return -1;
   while(len > 0){
-    va0 = PGROUNDDOWN(dstva);
+    va0 = PGROUNDDOWN(dstva);         
+    if((pte = walk(pagetable, va0, 0)) == 0) 
+      return -1;
+    if(*pte & PTE_COW) 
+      COW_FORK(va0);
     pa0 = walkaddr(pagetable, va0);
     if(pa0 == 0)
       return -1;

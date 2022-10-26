@@ -13,6 +13,8 @@ void freerange(void *pa_start, void *pa_end);
 
 extern char end[]; // first address after kernel.
                    // defined by kernel.ld.
+static int refer_count[40000];
+static uint64 PA_ST;
 
 struct run {
   struct run *next;
@@ -27,7 +29,9 @@ void
 kinit()
 {
   initlock(&kmem.lock, "kmem");
+  PA_ST = PGROUNDUP((uint64)end);
   freerange(end, (void*)PHYSTOP);
+  printf("kinit access\n");
 }
 
 void
@@ -51,14 +55,16 @@ kfree(void *pa)
   if(((uint64)pa % PGSIZE) != 0 || (char*)pa < end || (uint64)pa >= PHYSTOP)
     panic("kfree");
 
-  // Fill with junk to catch dangling refs.
-  memset(pa, 1, PGSIZE);
-
   r = (struct run*)pa;
 
   acquire(&kmem.lock);
-  r->next = kmem.freelist;
-  kmem.freelist = r;
+  if(kgetref((uint64)pa) > 0)
+    kchangeref((uint64)pa, -1);  
+  if(kgetref((uint64)pa) == 0) {
+    memset(pa, 1, PGSIZE);
+    r->next = kmem.freelist;
+    kmem.freelist = r;
+  }
   release(&kmem.lock);
 }
 
@@ -69,14 +75,41 @@ void *
 kalloc(void)
 {
   struct run *r;
-
+  
   acquire(&kmem.lock);
   r = kmem.freelist;
   if(r)
     kmem.freelist = r->next;
   release(&kmem.lock);
 
-  if(r)
+  if(r) {
     memset((char*)r, 5, PGSIZE); // fill with junk
+    refer_count[INDEX((uint64)r)] = 1; //add a refer to pag
+    //printf("kalloc page = %d\n", INDEX((uint64)r));
+  }
   return (void*)r;
+}
+
+int 
+kgetref(uint64 pa)
+{
+  if(((uint64)pa % PGSIZE) != 0 || (char*)pa < end || (uint64)pa >= PHYSTOP)
+    panic("kgetref");
+  if(INDEX(pa) >= 40000 || INDEX(pa) < 0) {
+    printf("index = %d\n", INDEX(pa));
+    panic("kgetref");
+  }
+  return refer_count[INDEX(pa)];
+}
+
+void
+kchangeref(uint64 pa, int val)
+{
+  if(((uint64)pa % PGSIZE) != 0 || (char*)pa < end || (uint64)pa >= PHYSTOP)
+    panic("kchangeref");
+  if(INDEX(pa) >= 40000 || INDEX(pa) < 0) { 
+    printf("index = %d\n", INDEX(pa));
+    panic("kchangeref");
+  }
+  refer_count[INDEX(pa)] += val;
 }
