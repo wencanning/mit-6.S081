@@ -132,3 +132,28 @@ printfinit(void)
   initlock(&pr.lock, "pr");
   pr.locking = 1;
 }
+
+static uint64*
+getprefp(uint64 *fp) 
+{
+    uint64 *pfp = fp - 2;
+    return (uint64*)(*pfp);
+}
+
+static uint64*
+getretad(uint64 *fp)
+{
+    uint64 *pad = fp - 1;
+    return (uint64*)(*pad);
+}
+
+void
+backtrace() 
+{
+    uint64 fp = r_fp();
+    printf("backtrace:\n");
+    do {
+        printf("%p\n",(uint64*)getretad((uint64*)fp));
+        fp = (uint64)getprefp((uint64*)fp);
+    }while(fp != PGROUNDDOWN(fp));
+}
