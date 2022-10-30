@@ -31,7 +31,6 @@ kinit()
   initlock(&kmem.lock, "kmem");
   PA_ST = PGROUNDUP((uint64)end);
   freerange(end, (void*)PHYSTOP);
-  printf("kinit access\n");
 }
 
 void

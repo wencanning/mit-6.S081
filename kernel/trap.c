@@ -34,39 +34,38 @@ trapinithart(void)
 // called from trampoline.S
 //
 
-void 
+int
 COW_FORK(uint64 va)
 {
   struct proc *p = myproc();
+  if(va >= MAXVA) 
+    return -1;
   pte_t* pte = walk(p->pagetable, va, 0);
-  if(pte == 0)
-    panic("COW_FORK");
-  if((*pte & PTE_COW) == 0)
-    panic("COW_FORK");
+  if(*pte == 0) 
+    return -1;
+  if((*pte & PTE_V) == 0 || (*pte & PTE_COW) == 0 || (*pte & PTE_U) == 0) 
+    return -1;
   uint64 pa = PTE2PA(*pte);
-  if(*pte & PTE_COW) {
-    if(kgetref(pa) == 1) {
-      *pte = *pte & (~PTE_COW);
-      *pte |= PTE_W;
-    }else {
-      int flag = PTE_FLAGS(*pte);
-      flag = flag & (~PTE_COW);
-      flag |= PTE_W;
-      kchangeref(pa,-1); 
-
-      uint64 new; 
-      if((new = (uint64)kalloc()) == 0)
-        p->killed = 1; 
-      memmove((void*)new, (char*)pa, PGSIZE);
-      uvmunmap(p->pagetable, va, 1, 0);
-      if(mappages(p->pagetable, va, PGSIZE, new, flag) != 0) {
-        kfree((void*)new);
-        p->killed = 1;
-      }
-    }
+  if(kgetref(pa) == 1) {
+    *pte = *pte & (~PTE_COW);
+    *pte |= PTE_W;
   }else {
-    p->killed = 1;   
+    int flag = PTE_FLAGS(*pte);
+    flag = flag & (~PTE_COW);
+    flag |= PTE_W;
+    kchangeref(pa,-1); 
+
+    uint64 new; 
+    if((new = (uint64)kalloc()) == 0)
+      return -1;
+    memmove((void*)new, (char*)pa, PGSIZE);
+    uvmunmap(p->pagetable, va, 1, 0);
+    if(mappages(p->pagetable, va, PGSIZE, new, flag) != 0) {
+      kfree((void*)new);
+      return -1;
+    }
   }
+  return 0;
 }
 
 void
@@ -105,9 +104,9 @@ usertrap(void)
     // ok
   }else if(r_scause() == 15) {
     uint64 va = r_stval();
-    va = PGROUNDDOWN(va);
-    //printf("copy on write: %p\n", (void*)va);
-    COW_FORK(va);
+    if(COW_FORK(PGROUNDDOWN(va)) == -1) {
+      p->killed = 1;
+    }
   } else {
     printf("usertrap(): unexpected scause %p pid=%d\n", r_scause(), p->pid);
     printf("            sepc=%p stval=%p\n", r_sepc(), r_stval());

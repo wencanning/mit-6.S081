@@ -137,7 +137,7 @@ uartputc_sync(int c)
 void
 uartstart()
 {
-  while(1){
+  while(1){ 
     if(uart_tx_w == uart_tx_r){
       // transmit buffer is empty.
       return;

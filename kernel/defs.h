@@ -147,7 +147,7 @@ void            trapinit(void);
 void            trapinithart(void);
 extern struct spinlock tickslock;
 void            usertrapret(void);
-void            COW_FORK(uint64);
+int             COW_FORK(uint64);
 
 // uart.c
 void            uartinit(void);
