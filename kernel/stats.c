@@ -9,7 +9,7 @@
 #include "riscv.h"
 #include "defs.h"
 
-#define BUFSZ 4096
+#define BUFSZ 5120
 static struct {
   struct spinlock lock;
   char buf[BUFSZ];
