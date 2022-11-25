@@ -30,7 +30,7 @@
 //   ...
 // Log appends are synchronous.
 
-// Contents of the header block, used for both the on-disk header block
+// Contents of the header block,u sed for both the on-disk header block
 // and to keep track in memory of logged block# before commit.
 struct logheader {
   int n;
@@ -76,7 +76,7 @@ install_trans(int recovering)
     memmove(dbuf->data, lbuf->data, BSIZE);  // copy block to dst
     bwrite(dbuf);  // write dst to disk
     if(recovering == 0)
-      bunpin(dbuf);
+      bunpin(dbuf); //在log_write中调用了bpin
     brelse(lbuf);
     brelse(dbuf);
   }
