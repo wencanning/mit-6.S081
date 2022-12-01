@@ -458,9 +458,9 @@ readi(struct inode *ip, int user_dst, uint64 dst, uint off, uint n)
   uint tot, m;
   struct buf *bp;
 
-  if(off > ip->size || off + n < off)
+  if(off > ip->size || off + n < off) //如果越界直接返回0
     return 0;
-  if(off + n > ip->size)
+  if(off + n > ip->size)//如果读的过程中会越界，只读到边界为止
     n = ip->size - off;
 
   for(tot=0; tot<n; tot+=m, off+=m, dst+=m){

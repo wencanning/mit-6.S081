@@ -15,7 +15,6 @@
 #include "sleeplock.h"
 #include "file.h"
 #include "fcntl.h"
-
 // Fetch the nth word-sized system call argument as a file descriptor
 // and return both the descriptor and the corresponding struct file.
 static int
@@ -483,4 +482,174 @@ sys_pipe(void)
     return -1;
   }
   return 0;
+}
+
+static struct VMA*
+VMAalloc()
+{
+  struct proc *p = myproc();
+  for(int i = 0; i < NVMA; i++) {
+    if(p->vmas[i].f == 0) {
+      return &p->vmas[i];
+    }
+  }
+  panic("VMAalloc");
+}
+
+struct VMA* 
+getVMA(uint64 addr) 
+{
+  struct proc *p = myproc();
+  for(int i = 0; i < NVMA; i++) {
+    if(p->vmas[i].addr <= addr && addr < p->vmas[i].addr + p->vmas[i].len) {
+      return &p->vmas[i];
+    }
+  }
+  return (struct VMA*)-1; 
+}
+
+int
+vmap(struct VMA* vma, uint64 addr) 
+{
+  struct proc *p = myproc();
+  uint64 pa = (uint64)kalloc();
+  uint64 perm = PTE_U;
+  if(vma->prot & PROT_READ) perm |= PTE_R;
+  if(vma->prot & PROT_WRITE) perm |= PTE_W;
+  if(vma->prot & PROT_EXEC) perm |= PTE_X;
+  memset((void*)pa, 0, PGSIZE);
+  pte_t *pte;
+  if((pte = walk(p->pagetable, addr, 1)) == 0)
+    return -1;
+  if(*pte & PTE_V)
+    panic("vmap: remap");
+  *pte = PA2PTE(pa) | perm | PTE_V;
+  // printf("maped %p\n", PGROUNDDOWN(addr));
+
+  struct file *f = vma->f;
+  struct inode *in = f->ip;
+
+  uint64 off = addr - vma->addr + vma->off;
+  begin_op();
+  ilock(in);
+  for(int i = 0; i < PGSIZE / BSIZE; i++) {
+    int n = readi(in, 0, pa + i * BSIZE, off + i * BSIZE, BSIZE);
+    if(n == -1) {
+      panic("vmap: readi");
+    }
+  }
+  iunlock(in);
+  end_op();
+  return 0;
+}
+
+void 
+vclear(struct VMA *vma) 
+{
+  memset(vma, 0, sizeof(struct VMA));
+}
+
+uint64
+sys_mmap(void)
+{
+  uint64 addr;
+  uint len, prot, flag, off, fd;
+  struct file * f;
+  struct proc * p = myproc();
+  struct VMA * vma = VMAalloc();
+  if(argaddr(0, &addr) == -1 || argint(1, (int*)&len) == -1 || argint(2, (int*)&prot) == -1 || 
+        argint(3, (int*)&flag) == -1 || argint(4, (int*)&fd) == -1 || argint(5, (int*)&off) == -1) {
+    return -1;
+  }
+  f = p->ofile[fd];
+  if(flag & MAP_SHARED) {
+    if(!f->readable && (prot & PROT_READ)) return -1;
+    if(!f->writable && (prot & PROT_WRITE)) return -1;
+  }
+  if(off % PGSIZE != 0) return -1;
+  if(addr == 0) {
+    if(off == 0) {
+      vma->f = filedup(f);
+      vma->len = (len + PGSIZE - 1) / PGSIZE * PGSIZE; 
+      vma->addr = p->vmaaddr - vma->len;
+      p->vmaaddr = vma->addr; 
+      vma->flag = flag;
+      vma->prot = prot;
+      vma->off = off;
+      // printf("create [%p, %p), \n", vma->addr, vma->addr+vma->len);
+      return vma->addr;
+    }else {
+      return -1;
+    }
+  }else {
+    return -1;
+  }
+  return -1;
+}
+
+uint64
+sys_munmap(void)
+{
+  uint64 addr;
+  uint len;
+  if(argaddr(0, &addr) == -1 || argint(1, (int*)&len) == -1) {
+    return -1;
+  }
+  return munmap(getVMA(addr), addr, len);
+}
+
+int 
+munmap(struct VMA *vma, uint64 addr, uint len) 
+{
+  struct proc *p = myproc();
+  struct file *f = vma->f;
+  if(vma == (struct VMA*)-1) return -1;
+  if(addr < vma->addr) return -1;
+  if(addr + len > vma->addr + vma->len) return -1;
+
+  if(vma->flag & MAP_SHARED) {
+    uint off, r;
+    for(uint64 i = PGROUNDDOWN(addr); i < addr + len; i += PGSIZE) {
+      off = i - vma->addr + vma->off;
+      pte_t *pte = walk(p->pagetable, i, 0);
+      // printf("want to write %p\n", i);
+      if(pte == 0 || !(*pte & PTE_V) || !(*pte & PTE_D)) {
+        // printf("%p not maped\n", i);
+        continue;
+      }
+      begin_op();
+      ilock(f->ip);
+      r = writei(f->ip, 1, i, off, PGSIZE);
+      iunlock(f->ip);
+      end_op();
+      if(r != PGSIZE) {
+        // printf("r = %d\n", r);
+        // panic("r != PGSIZE");
+        return -1;
+      }
+    }
+  }
+  uint64 npages = 0;
+  for(uint64 i = PGROUNDDOWN(addr); i < addr + len; i += PGSIZE) {
+    npages++;
+    pte_t *pte = walk(p->pagetable, i, 0);
+    if(pte != 0 && (*pte & PTE_V)) {
+      // printf("unmaped: %p\n", i);
+      uvmunmap(p->pagetable, i, 1, 1);
+    }
+  }
+  //修改vma中的区间和分段的大小, 并释放相应的page
+  if(vma->addr == addr && vma->len == len) {
+    vclear(vma);
+    fileclose(f);
+  }else if(vma->addr == addr) {
+    vma->addr += npages * PGSIZE;
+    vma->len  -= npages * PGSIZE;
+    vma->off  += npages * PGSIZE;
+  }else if(addr + len == vma->addr + vma->len){
+    vma->len  -= npages * PGSIZE;
+  }else {
+    panic("sys_munmap: wrong range");
+  }
+  return 0; 
 }

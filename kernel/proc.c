@@ -235,13 +235,15 @@ userinit(void)
   uvminit(p->pagetable, initcode, sizeof(initcode));
   p->sz = PGSIZE;
 
+  p->vmaaddr = TRAPFRAME - PGSIZE;
+
   // prepare for the very first "return" from kernel to user.
   p->trapframe->epc = 0;      // user program counter
   p->trapframe->sp = PGSIZE;  // user stack pointer
 
   safestrcpy(p->name, "initcode", sizeof(p->name));
   p->cwd = namei("/");
-
+  
   p->state = RUNNABLE;
 
   release(&p->lock);
@@ -287,6 +289,16 @@ fork(void)
     release(&np->lock);
     return -1;
   }
+
+  np->vmaaddr = p->vmaaddr;
+  for(int i = 0; i < NVMA; i++) {
+    if(p->vmas[i].f != 0) {
+      np->vmas[i] = p->vmas[i];
+      filedup(p->vmas[i].f);
+      uvvmacopy(p->pagetable, np->pagetable, &p->vmas[i]); 
+    }
+  }
+
   np->sz = p->sz;
 
   // copy saved user registers.
@@ -294,6 +306,7 @@ fork(void)
 
   // Cause fork to return 0 in the child.
   np->trapframe->a0 = 0;
+  
 
   // increment reference counts on open file descriptors.
   for(i = 0; i < NOFILE; i++)
@@ -350,6 +363,11 @@ exit(int status)
       struct file *f = p->ofile[fd];
       fileclose(f);
       p->ofile[fd] = 0;
+    }
+  }
+  for(int i = 0; i < NVMA; i++) {
+    if(p->vmas[i].f) {
+      munmap(&p->vmas[i], p->vmas[i].addr, p->vmas[i].len);
     }
   }
 

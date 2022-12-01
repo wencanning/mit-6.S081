@@ -82,6 +82,15 @@ struct trapframe {
 
 enum procstate { UNUSED, USED, SLEEPING, RUNNABLE, RUNNING, ZOMBIE };
 
+struct VMA {
+    struct file * f;   
+    uint64 addr;
+    uint64 off;
+    uint len;
+    uint prot;
+    uint flag;
+};
+
 // Per-process state
 struct proc {
   struct spinlock lock;
@@ -93,6 +102,8 @@ struct proc {
   int xstate;                  // Exit status to be returned to parent's wait
   int pid;                     // Process ID
 
+  uint64 vmaaddr;
+
   // wait_lock must be held when using this:
   struct proc *parent;         // Parent process
 
@@ -103,6 +114,7 @@ struct proc {
   struct trapframe *trapframe; // data page for trampoline.S
   struct context context;      // swtch() here to run process
   struct file *ofile[NOFILE];  // Open files
+  struct VMA vmas[NVMA];      // VMA
   struct inode *cwd;           // Current directory
   char name[16];               // Process name (debugging)
 };

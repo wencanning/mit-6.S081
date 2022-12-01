@@ -5,6 +5,10 @@
 #include "spinlock.h"
 #include "proc.h"
 #include "defs.h"
+#include "sleeplock.h"
+#include "fcntl.h"
+#include "fs.h"
+#include "file.h"
 
 struct spinlock tickslock;
 uint ticks;
@@ -27,6 +31,12 @@ void
 trapinithart(void)
 {
   w_stvec((uint64)kernelvec);
+}
+
+static int 
+is_pagefault(int num) 
+{
+  return (num == 12) || (num == 13) || (num == 15);
 }
 
 //
@@ -67,7 +77,30 @@ usertrap(void)
     syscall();
   } else if((which_dev = devintr()) != 0){
     // ok
-  } else {
+  }else if(is_pagefault(r_scause())) {
+    int cause = r_scause();
+    uint64 addr = r_stval();
+    struct VMA *vma = getVMA(addr);
+    if(vma == (struct VMA*)-1) 
+      p->killed = -1;
+    else 
+      switch (cause) {
+        case 12:
+          if(vma->prot & PROT_EXEC) vmap(vma, addr);
+          else p->killed = 1;
+          break;
+        case 13:
+          if(vma->prot & PROT_READ) vmap(vma, addr);
+          else p->killed = 1;
+          break;
+        case 15:
+          if(vma->prot & PROT_WRITE) vmap(vma, addr);
+          else p->killed = 1;
+          break;
+        default:
+          panic("usertrap: wrong page fault");
+      } 
+  }else {
     printf("usertrap(): unexpected scause %p pid=%d\n", r_scause(), p->pid);
     printf("            sepc=%p stval=%p\n", r_sepc(), r_stval());
     p->killed = 1;

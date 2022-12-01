@@ -5,6 +5,8 @@
 #include "riscv.h"
 #include "defs.h"
 #include "fs.h"
+#include "spinlock.h"
+#include "proc.h"
 
 /*
  * the kernel's page table.
@@ -325,6 +327,30 @@ uvmcopy(pagetable_t old, pagetable_t new, uint64 sz)
  err:
   uvmunmap(new, 0, i / PGSIZE, 1);
   return -1;
+}
+
+int
+uvvmacopy(pagetable_t old, pagetable_t new, struct VMA *vma) 
+{
+  pte_t *pte;
+  uint64 pa;
+  uint flags;
+  char *mem;
+  for(uint64 i = vma->addr; i < vma->addr + vma->len; i += PGSIZE) {
+    if((pte = walk(old, i, 0)) == 0)
+      continue;
+    if((*pte & PTE_V) == 0)
+      continue;
+    pa = PTE2PA(*pte);
+    flags = PTE_FLAGS(*pte);
+    if((mem = kalloc()) == 0) 
+      panic("uvvmacopy: copy vma");
+    memmove(mem, (char*)pa, PGSIZE);
+    if(mappages(new, i, PGSIZE, (uint64)mem, flags)) {
+      panic("uvvmacopy: mappages");
+    }
+  }
+  return 0;
 }
 
 // mark a PTE invalid for user access.
